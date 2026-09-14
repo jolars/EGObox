@@ -324,6 +324,9 @@ rnd = egx.random(xlimits, n_samples=20, seed=42)  # Random
 
 ## Further Resources
 
+- Cookbook: Practical parameterization recipes - [website/content/cookbook.md](../../website/content/cookbook.md)
+- Tuning guidance: Egor optimizer tuning heuristics - [egobox-egor-tuning/SKILL.md](../egobox-egor-tuning/SKILL.md)
+- Surrogate modeling: Gaussian Process modeling with Egobox - [egobox-gpx/SKILL.md](../egobox-gpx/SKILL.md)
 - GitHub: https://github.com/relf/EGObox
 - Rust API docs: https://docs.rs/egobox-ego/latest/egobox_ego/
 - Tutorial notebooks: https://github.com/relf/EGObox/tree/master/doc

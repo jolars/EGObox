@@ -1,65 +1,84 @@
 ---
 name: egobox-egor-tuning
 description: >
-  Use this skill whenever the user is working with the Egor optimizer.
-  Triggers on any mention of: Egor optimizer
-  Bayesian optimization in Rust/Python or requests to minimize expensive black-box functions using
-  surrogate models.
+  Use this skill whenever the user is working with the Egor optimizer for
+  Bayesian optimization. Triggers on requests to tune Egor parameters, diagnose
+  optimization issues, or configure Egor for specific problem types (high-dimensional,
+  constrained, parallel, expensive objectives, etc.).
 ---
 
 # EGOR Tuning Skill
 
 ## Goal
 
-Automatically select and adapt EGOR optimization parameters based on:
+Provide practical guidance for selecting and adapting EGOR optimization parameters based on:
 - problem dimension
-- objective evaluation runtime
+- objective evaluation runtime  
 - available optimization budget
 - parallel evaluation availability
 - convergence progress
+- constraint complexity
 
-## Workflow
+## Cookbook Reference
 
-1. Estimate problem characteristics.
-2. Select initial EGOR strategy.
-3. Monitor optimization progress.
-4. Adapt exploration/exploitation.
+For detailed parameterization recipes with complete examples, see the **[EGObox Cookbook](../../website/content/cookbook.md)**.
 
-## Basic rules
+The cookbook contains 11 practical recipes covering:
+- Cheap vs. expensive objectives
+- High-dimensional problems (d > 10, d > 50)
+- Parallel/batch evaluations
+- Stagnation recovery
+- Constraint handling (various forms)
+- Cheap constraints
+- Warm restarts from existing DOE
 
-- More dimensions -> reduce direct sampling, use surrogate strategies.
-- Expensive evaluations -> maximize information gain.
-- Poor progress -> increase exploration.
+---
 
-## Advanced strategies
+## Quick Reference
 
-### Poor convergence
+### Dimension Guidelines
+
+| Dimension | Strategy |
+|-----------|----------|
+| d < 10 | Standard Egor with adequate DOE |
+| d > 10 | Enable KPLS (kpls_dim ≈ d/2) |
+| d > 50 | Enable CoEGO with cooperative groups |
+
+### Evaluation Cost Guidelines
+
+| Cost | DOE Size | Iterations |
+|------|----------|------------|
+| Cheap | Large (3×n_dims) | High (50+) |
+| Expensive | Small (n_dims+1) | Moderate (20-30) |
+
+### Convergence Issues
 
 If optimization stagnates:
-- enable TREGO
-- switch kernel from SquaredExponential to Matern52
-- increase exploration
+1. Enable TREGO trust-region framework
+2. Switch kernel from SquaredExponential to Matern52
+3. Try different infill strategy (WB2, EI instead of LOG_EI)
+4. Increase exploration via infill parameters
 
-### Dimension > 10
+### Parallel Execution
 
-Use KPLS for Gaussian process fitting.
+When parallel evaluations are available:
+- Use `QEiConfig` with appropriate batch size
+- Batch size ≈ dimension/10 is a good starting point
+- Strategy `KB` works well for most cases
 
-Examples:
-- dimension 20: kpls_dim=5
-- dimension 100: kpls_dim=10
+---
 
-### Dimension > 50
+## Examples
 
-Use CoEGO.
+See [examples directory](examples/) for concrete use cases:
+- `cheap_function.yaml` - Low-cost objective optimization
+- `expensive_function.yaml` - High-cost objective optimization  
+- `high_dimensional.yaml` - Problems with d > 10
+- `parallel.yaml` - Batch/parallel evaluation setup
+- `bad_progress.yaml` - Stagnation recovery strategies
 
-Example:
-- dimension 100: n_coop_comp=5
+---
 
-### Parallel evaluations
+## API Reference
 
-If evaluations can run in parallel:
-use qEIConfig.
-
-Examples:
-- dimension 50: batch=5
-- dimension 100: batch=10
+For complete parameter definitions, see the [Python API documentation](../../website/content/python-api.md).
