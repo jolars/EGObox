@@ -330,8 +330,8 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
     }
 }
 
-/// Egor optimizer structure used to parameterize the underlying `argmin::Solver`
-/// and trigger the optimization using `argmin::Executor`.
+/// Egor optimizer wrapping the EGO solver and its execution policy.
+/// Uses Basin's executor with the `basin` feature and Argmin's executor otherwise.
 #[derive(Clone)]
 pub struct Egor<
     O: ObjFn,
@@ -641,11 +641,12 @@ mod tests {
         // lower bound of theta interval as with a smaller bound
         // it would be around 1.28 after first iteration
         dbg!(res.state.clone());
-        assert_eq!(
+        assert_abs_diff_eq!(
             res.state.surrogate.theta_inits.unwrap()[0]
                 .as_ref()
                 .unwrap(),
-            array![[LOWER_BOUND]]
+            &array![[LOWER_BOUND]],
+            epsilon = 1e-12
         );
         assert_eq!(
             res.state.surrogate.clusterings.unwrap()[0]
@@ -1107,6 +1108,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_egor_g24_basic_egor_builder_cobyla() {
+        let _ = env_logger::try_init();
         let xlimits = array![[0., 3.], [0., 4.]];
         let doe = Lhs::new(&xlimits)
             .with_rng(Xoshiro256Plus::seed_from_u64(0))
@@ -1747,7 +1749,7 @@ mod tests {
         let objective_calls = calls.clone();
         let objective = move |x: &ArrayView2<f64>| -> std::result::Result<Array2<f64>, String> {
             if objective_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
-                Ok(Array2::zeros((x.nrows(), 1)))
+                Ok(x * x)
             } else {
                 Err("simulated objective failure".to_string())
             }
@@ -1760,6 +1762,7 @@ mod tests {
             .run();
 
         let result = result.expect("objective failure should use the failsafe by default");
+        assert!(calls.load(std::sync::atomic::Ordering::Relaxed) > 1);
         assert!(result.state.surrogate.x_fail.is_some());
     }
 
@@ -1770,7 +1773,7 @@ mod tests {
         let objective_calls = calls.clone();
         let objective = move |x: &ArrayView2<f64>| -> std::result::Result<Array2<f64>, String> {
             if objective_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
-                Ok(Array2::zeros((x.nrows(), 1)))
+                Ok(x * x)
             } else {
                 Err("simulated objective failure".to_string())
             }
@@ -1783,6 +1786,7 @@ mod tests {
             .run()
             .expect("objective failure should terminate optimization normally");
 
+        assert!(calls.load(std::sync::atomic::Ordering::Relaxed) > 1);
         assert_eq!(
             result.state.termination_status,
             TerminationStatus::Terminated(TerminationReason::SolverExit(

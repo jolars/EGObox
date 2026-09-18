@@ -13,7 +13,7 @@ categories = ["algorithms", "mathematics", "science"]
 
 [features]
 default = ["persistent"]
-basin = ["dep:basin", "dep:ctrlc"]
+basin = ["dep:basin", "dep:ctrlc", "egobox-gp/basin", "egobox-moe/basin"]
 
 persistent = ["egobox-moe/persistent"]
 blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]

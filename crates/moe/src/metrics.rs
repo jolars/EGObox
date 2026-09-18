@@ -314,12 +314,14 @@ mod test {
         let yt = iooss_function(&xt);
 
         let moe = GpMixtureParams::default()
+            // Keep the calibration fixture independent of hyperparameter search.
+            .theta_tunings(&[ThetaTuning::Fixed(array![0.07, 0.24])])
             .fit(&Dataset::new(xt, yt))
             .expect("GP fit error");
 
         let iae = moe.iae_alpha_score(None);
         println!("IAE = {:.6}", iae);
-        assert_abs_diff_eq!(iae, 0.3, epsilon = 1e-1);
+        assert_abs_diff_eq!(iae, 0.361507, epsilon = 1e-6);
     }
 
     fn rescaled_branin(x: &Array2<f64>) -> Array1<f64> {

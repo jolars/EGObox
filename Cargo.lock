@@ -715,6 +715,7 @@ dependencies = [
  "anyhow",
  "approx",
  "argmin_testfunctions",
+ "basin",
  "cobyla",
  "criterion",
  "egobox-doe",
