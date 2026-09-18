@@ -152,20 +152,25 @@
 use crate::EgoError;
 use crate::EgorConfig;
 use crate::EgorState;
+#[cfg(not(feature = "basin"))]
 use crate::HotStartMode;
 use crate::errors::Result;
 use crate::types::*;
+#[cfg(not(feature = "basin"))]
 use crate::{CHECKPOINT_FILE, CheckpointingFrequency, HotStartCheckpoint};
 use crate::{EgorSolver, to_xtypes};
 use egobox_moe::{MixintGpMixtureParams, to_discrete_space};
 
+#[cfg(not(feature = "basin"))]
 use argmin::core::observers::ObserverMode;
 
 use egobox_moe::GpMixtureParams;
 use log::info;
 use ndarray::{Array2, ArrayBase, Axis, Data, Ix2, concatenate};
 
-use argmin::core::{Error, Executor, KV, State, observers::Observe};
+#[cfg(not(feature = "basin"))]
+use argmin::core::Executor;
+use argmin::core::{Error, KV, State, observers::Observe};
 use serde::{Serialize, de::DeserializeOwned};
 
 use ndarray_npy::write_npy;
@@ -350,56 +355,61 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
             std::fs::write(filepath, json).expect("Unable to write file");
         }
 
-        let exec = Executor::new(self.fobj.clone(), self.solver.clone()).timer(true);
+        #[cfg(feature = "basin")]
+        let state = crate::basin_executor::run(self.fobj.clone(), self.solver.clone())?;
+        #[cfg(not(feature = "basin"))]
+        let state = {
+            let exec = Executor::new(self.fobj.clone(), self.solver.clone()).timer(true);
 
-        let exec = if let Some(timeout) = self.solver.config.timeout {
-            exec.timeout(std::time::Duration::from_secs_f64(timeout))
-        } else {
-            exec
-        };
-
-        let exec = if self.solver.config.hot_start != HotStartMode::Disabled {
-            let chkpt_dir = if let Some(outdir) = self.solver.config.outdir.as_ref() {
-                outdir
+            let exec = if let Some(timeout) = self.solver.config.timeout {
+                exec.timeout(std::time::Duration::from_secs_f64(timeout))
             } else {
-                ".checkpoints"
+                exec
             };
-            let checkpoint = HotStartCheckpoint::new(
-                chkpt_dir,
-                CHECKPOINT_FILE,
-                CheckpointingFrequency::Always,
-                self.solver.config.hot_start.clone(),
-            );
-            exec.checkpointing(checkpoint)
-        } else {
-            exec
-        };
 
-        let result = if let Some(outdir) = self.solver.config.outdir.as_ref() {
-            let hist = OptimizationObserver::new(outdir.clone());
-            exec.add_observer(hist, ObserverMode::Always).run()?
-        } else {
-            exec.run()?
-        };
+            let exec = if self.solver.config.hot_start != HotStartMode::Disabled {
+                let chkpt_dir = if let Some(outdir) = self.solver.config.outdir.as_ref() {
+                    outdir
+                } else {
+                    ".checkpoints"
+                };
+                let checkpoint = HotStartCheckpoint::new(
+                    chkpt_dir,
+                    CHECKPOINT_FILE,
+                    CheckpointingFrequency::Always,
+                    self.solver.config.hot_start.clone(),
+                );
+                exec.checkpointing(checkpoint)
+            } else {
+                exec
+            };
 
-        info!("{result}");
-        let (x_data, y_data, c_data) = result.state().clone().take_data().unwrap();
+            let result = if let Some(outdir) = self.solver.config.outdir.as_ref() {
+                let hist = OptimizationObserver::new(outdir.clone());
+                exec.add_observer(hist, ObserverMode::Always).run()?
+            } else {
+                exec.run()?
+            };
+
+            info!("{result}");
+            result.state
+        };
+        let (x_data, y_data, c_data) = state.clone().take_data().unwrap();
 
         let res = if !self.solver.config.discrete() {
             info!("Data: \n{}", concatenate![Axis(1), x_data, y_data, c_data]);
             OptimResult {
-                x_opt: result.state.get_best_param().unwrap().to_owned(),
-                y_opt: result.state.get_full_best_cost().unwrap().to_owned(),
+                x_opt: state.get_best_param().unwrap().to_owned(),
+                y_opt: state.get_full_best_cost().unwrap().to_owned(),
                 x_doe: x_data,
                 y_doe: y_data,
-                state: result.state,
+                state,
             }
         } else {
             let x_data = to_discrete_space(&xtypes, &x_data.view());
             info!("Data: \n{}", concatenate![Axis(1), x_data, y_data, c_data]);
 
-            let x_opt = result
-                .state
+            let x_opt = state
                 .get_best_param()
                 .unwrap()
                 .to_owned()
@@ -407,10 +417,10 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
             let x_opt = to_discrete_space(&xtypes, &x_opt.view());
             OptimResult {
                 x_opt: x_opt.row(0).to_owned(),
-                y_opt: result.state.get_full_best_cost().unwrap().to_owned(),
+                y_opt: state.get_full_best_cost().unwrap().to_owned(),
                 x_doe: x_data,
                 y_doe: y_data,
-                state: result.state,
+                state,
             }
         };
 
@@ -450,14 +460,14 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
 // saved as a numpy array for further analysis
 // Note: the observer is activated only when outdir is specified
 #[derive(Default)]
-struct OptimizationObserver {
+pub(crate) struct OptimizationObserver {
     pub dir: PathBuf,
     pub best_params: Option<Array2<f64>>,
     pub best_costs: Option<Array2<f64>>,
 }
 
 impl OptimizationObserver {
-    fn new(dir: String) -> Self {
+    pub(crate) fn new(dir: String) -> Self {
         Self {
             dir: PathBuf::from(dir),
             best_params: None,
@@ -544,6 +554,8 @@ pub type EgorBuilder<O> = EgorFactory<O, Cstr>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "basin")]
+    use crate::{CHECKPOINT_FILE, HotStartMode};
     use approx::assert_abs_diff_eq;
     use argmin::core::{TerminationReason, TerminationStatus};
     use argmin_testfunctions::rosenbrock;
